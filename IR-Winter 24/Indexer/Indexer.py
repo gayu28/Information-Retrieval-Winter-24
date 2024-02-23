@@ -10,6 +10,8 @@ import numpy
 import nltk
 from nltk.stem import PorterStemmer
 from nltk.corpus import stopwords
+import sys
+
 
 
 class Indexer:
@@ -19,7 +21,7 @@ class Indexer:
         self.stop_words = set(stopwords.words('english')) # stop words list from nltk
         self.ps = PorterStemmer()
         self.tfidf_vectorizer = TfidfVectorizer(stop_words='english')
-        self.max_memory_size = 500
+        self.max_memory_size = 1e8 # 1 gb as the max size of the in-memory index. made it 0.1gb for now
         self.partial_index_count = 0
         self.output_folder = "partial_indexes"
 
@@ -87,7 +89,8 @@ class Indexer:
     
     def memory_size_exceeded(self):
         # Check if size of in-memory index exceeds threshold
-        return len(self.inverted_index) > self.max_memory_size
+        #return len(self.inverted_index) > self.max_memory_size
+        return sys.getsizeof(self.inverted_index) > self.max_memory_size
 
     def offload_to_disk(self):
         print("Offloading to disk...")
@@ -157,7 +160,7 @@ class Indexer:
 # Usage
 if __name__ == "__main__":
     indexer = Indexer()
-    dataset_folder = "/home/ics-home/IR-Winter 24/Indexer/Data"  # Update with the actual path
+    dataset_folder = "DEV"  # Update with the actual path
     indexer.build_index(dataset_folder)
     output_folder = "inverted-index"  # Update with the desired output path
     indexer.save_index_to_disk(output_folder)
