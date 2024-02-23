@@ -3,14 +3,14 @@ import re
 from collections import defaultdict
 from bs4 import BeautifulSoup
 import json
-
+import pickle
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 import numpy
 import nltk
 from nltk.stem import PorterStemmer
 from nltk.corpus import stopwords
-nltk.download('stopwords')
+
 
 class Indexer:
     def __init__(self):
@@ -19,6 +19,9 @@ class Indexer:
         self.stop_words = set(stopwords.words('english')) # stop words list from nltk
         self.ps = PorterStemmer()
         self.tfidf_vectorizer = TfidfVectorizer(stop_words='english')
+        self.max_memory_size = 500
+        self.partial_index_count = 0
+        self.output_folder = "partial_indexes"
 
 
     def process_document(self, document):
@@ -29,6 +32,10 @@ class Indexer:
         tokens, important_words = self.tokenize_and_stem(content)
         # Update inverted index
         self.update_index(tokens, important_words, url)
+        # Check if in-memory index size exceeds threshold, offload to disk if necessary
+        if self.memory_size_exceeded():
+            print("exceeded")
+            self.offload_to_disk()
 
     def tokenize_and_stem(self, content):
         # Tokenize, remove stop words, and apply stemming
@@ -77,7 +84,51 @@ class Indexer:
         # If the token is found, get its TF-IDF score using the assigned weight, otherwise, set it to 0
         tf_idf_score = tfidf_matrix[0, token_index] * weight if token_index != -1 else 0
         return tf_idf_score
+    
+    def memory_size_exceeded(self):
+        # Check if size of in-memory index exceeds threshold
+        return len(self.inverted_index) > self.max_memory_size
 
+    def offload_to_disk(self):
+        print("Offloading to disk...")
+        print("Index size:", len(self.inverted_index))
+        # Serialize in-memory index and write to disk
+        if not os.path.exists(self.output_folder):
+            os.makedirs(self.output_folder)  # Create the output folder if it doesn't exist
+        partial_index_path = os.path.join(self.output_folder, f'partial_index_{self.partial_index_count}.json')
+        print("Saving to:", partial_index_path)
+        with open(partial_index_path, 'w') as index_file:
+            json.dump(dict(self.inverted_index), index_file)
+        self.partial_index_count += 1
+        self.inverted_index = defaultdict(list)
+        print("Offload complete.", self.partial_index_count)
+
+
+
+    def merge_partial_indexes(self):
+        # Merge partial indexes from disk into a single index
+        merged_index = defaultdict(list)
+        for i in range(self.partial_index_count):
+            partial_index_path = os.path.join(self.output_folder, f'partial_index_{i}.json')
+            with open(partial_index_path, 'r') as partial_index_file:
+                partial_index = json.load(partial_index_file)
+                for term, postings in partial_index.items():
+                    merged_index[term].extend(postings)
+            # os.remove(partial_index_path)  # Remove partial index file after merging
+        self.inverted_index = merged_index
+    
+    def split_index_files(self):
+        # Optional: Split merged index into separate files with term ranges
+        terms = sorted(self.inverted_index.keys())
+        num_files = (len(terms) + 999) // 1000  # Split into files with 1000 terms each
+        for i in range(num_files):
+            start_index = i * 1000
+            end_index = min((i + 1) * 1000, len(terms))
+            index_slice = {term: self.inverted_index[term] for term in terms[start_index:end_index]}
+            with open(os.path.join(self.output_folder, f'index_{i}.json'), 'w') as index_file:
+                json.dump(index_slice, index_file)
+
+    
     def build_index(self, dataset_folder):
         # Iterate through documents in the dataset folder and build the inverted index
         for domain_folder in os.listdir(dataset_folder):
@@ -92,11 +143,15 @@ class Indexer:
                     document = json.load(file)
                     self.process_document(document)
 
+        # Merge partial indexes into a single index
+        self.merge_partial_indexes()
+        self.split_index_files()  # Add this line to call the split_index_files method
 
+        
     def save_index_to_disk(self, output_folder):
         # Save the inverted index to one or more files on disk
         # You may need to customize this based on your requirements
-        with open(os.path.join(output_folder, 'inverted_index2.json'), 'w') as index_file:
+        with open(os.path.join(output_folder, 'inverted_index4.json'), 'w') as index_file:
             json.dump(self.inverted_index, index_file)
 
 # Usage
