@@ -1,6 +1,7 @@
 import os
 import re
 from collections import defaultdict
+from collections import OrderedDict
 from bs4 import BeautifulSoup
 import json
 import pickle
@@ -13,25 +14,31 @@ from nltk.corpus import stopwords
 import sys
 
 
-
 class Indexer:
     def __init__(self):
         # Initialize necessary variables
         self.inverted_index = defaultdict(list)
         self.stop_words = set(stopwords.words('english')) # stop words list from nltk
         self.ps = PorterStemmer()
-        self.tfidf_vectorizer = TfidfVectorizer(stop_words='english')
-        self.max_memory_size = 1e8 # 1 gb as the max size of the in-memory index. made it 0.1gb for now
+        self.tfidf_vectorizer = TfidfVectorizer()#stop_words='english'
+        self.max_memory_size = 1e8 # 100 mb as the max size of the in-memory index
         self.partial_index_count = 0
-        self.output_folder = "partial_indexes"
+        self.output_folder = "partial_indexes-update1"  # Output folder for partial indexes
 
 
     def process_document(self, document):
         # Extract information from a document and update the inverted index
         url = document["url"]
+        # remove everything before the first "//"
+        url = url.split("//",1)[1]
+        #normalise the url
+        if url.endswith("/"):
+            url =  url.rstrip("/")
+
         content = document["content"]
         # Process content (remove HTML tags, tokenize, stem, etc.)
         tokens, important_words = self.tokenize_and_stem(content)
+        
         # Update inverted index
         self.update_index(tokens, important_words, url)
         # Check if in-memory index size exceeds threshold, offload to disk if necessary
@@ -49,8 +56,8 @@ class Indexer:
         # Extract important words
         important_words = self.extract_important_words(text)
         
-        # Remove stop words and apply stemming
-        tokens = [self.ps.stem(word) for word in words if word not in self.stop_words]
+        # apply stemming
+        tokens = [self.ps.stem(word) for word in words ]#if word not in self.stop_words]
         
         return tokens, important_words
     
@@ -62,7 +69,10 @@ class Indexer:
     def update_index(self, tokens, important_words, url):
         # Update inverted index with tokens and their occurrences
         for token in set(tokens + important_words):  # Use set to ensure unique tokens in a document
-            self.inverted_index[token].append((url, self.calculate_tf_idf(token, tokens, important_words)))
+            #find the positions of the words in the document
+            position  = [i for i in range(len(tokens)) if tokens[i] == token]
+            position = tuple(position) # tuple is  a more efficient way to store the position
+            self.inverted_index[token].append((url, self.calculate_tf_idf(token, tokens, important_words), position))
 
     def calculate_tf_idf(self, token, tokens, important_words):
         # Assign weights to important words
@@ -90,11 +100,15 @@ class Indexer:
     def memory_size_exceeded(self):
         # Check if size of in-memory index exceeds threshold
         #return len(self.inverted_index) > self.max_memory_size
-        return sys.getsizeof(self.inverted_index) > self.max_memory_size
+        return sys.getsizeof(self.inverted_index) >= self.max_memory_size
 
     def offload_to_disk(self):
         print("Offloading to disk...")
         print("Index size:", len(self.inverted_index))
+
+        # Sort the partial index by key
+        self.inverted_index = OrderedDict(sorted(self.inverted_index.items()))
+
         # Serialize in-memory index and write to disk
         if not os.path.exists(self.output_folder):
             os.makedirs(self.output_folder)  # Create the output folder if it doesn't exist
@@ -154,7 +168,7 @@ class Indexer:
     def save_index_to_disk(self, output_folder):
         # Save the inverted index to one or more files on disk
         # You may need to customize this based on your requirements
-        with open(os.path.join(output_folder, 'inverted_index4.json'), 'w') as index_file:
+        with open(os.path.join(output_folder, 'inverted_index_updated1.json'), 'w') as index_file:
             json.dump(self.inverted_index, index_file)
 
 # Usage
@@ -162,5 +176,5 @@ if __name__ == "__main__":
     indexer = Indexer()
     dataset_folder = "DEV"  # Update with the actual path
     indexer.build_index(dataset_folder)
-    output_folder = "inverted-index"  # Update with the desired output path
+    output_folder = "inverted-index-update1"  # Update with the desired output path
     indexer.save_index_to_disk(output_folder)
