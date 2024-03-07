@@ -28,9 +28,19 @@ class SearchEngine:
                     index_data = json.load(f)
                     for term, postings in index_data.items():
                         self.inverted_index[term] += postings
-
-    def calculate_tf_idf(self, tf, df, N):
-        return (1 + math.log10(tf)) * math.log10(N / df)
+        
+        # Precompute document lengths
+        self.doc_lengths = defaultdict(int)
+        for postings in self.inverted_index.values():
+            for doc_id, tf in postings:
+                self.doc_lengths[doc_id] += tf
+        
+        # Precompute query term weights
+        self.query_weights = {}
+        N = len(self.inverted_index)
+        for term in self.inverted_index.keys():
+            df = len(self.inverted_index[term])
+            self.query_weights[term] = math.log10(N / df) if df > 0 else 0
 
     def process_query(self, query):
         # Tokenize and stem the query
@@ -38,38 +48,22 @@ class SearchEngine:
         scores = defaultdict(float)
         N = len(self.inverted_index)  # Total number of documents
         
-        # Additional components
-        doc_lengths = defaultdict(int)  # Document lengths
-        query_weights = defaultdict(int)  # Query term weights
-        query_terms_set = set(tokens)  # Unique query terms for proximity calculation
-        
-        # Calculate document lengths and query term weights
-        for term in query_terms_set:
-            if term in self.inverted_index:
-                df = len(self.inverted_index[term])
-                idf = math.log10(N / df) if df > 0 else 0
-                query_weights[term] = idf
-                for doc_id, tf in self.inverted_index[term]:
-                    doc_lengths[doc_id] += tf
-        
         # Calculate relevance scores for each document containing any query term
         for token in tokens:
             if token in self.inverted_index:
                 df = len(self.inverted_index[token])
                 idf = math.log10(N / df) if df > 0 else 0
                 for doc_id, tf in self.inverted_index[token]:
-                    tfidf = self.calculate_tf_idf(tf, df, N)
+                    # TF-IDF calculation
+                    tfidf = (1 + math.log10(tf)) * idf
                     
                     # Document length normalization
-                    doc_length_norm = doc_lengths[doc_id] / max(doc_lengths.values())
+                    doc_length_norm = self.doc_lengths[doc_id] / max(self.doc_lengths.values())
                     
                     # Query term weighting
-                    query_weight = query_weights[token]
+                    query_weight = self.query_weights[token]
                     
-                    # Term proximity
-                    proximity_score = sum(1 / (1 + abs(tokens.index(token) - tokens.index(term))) for term in query_terms_set)
-                    
-                    scores[doc_id] += tfidf * doc_length_norm * query_weight * proximity_score
+                    scores[doc_id] += tfidf * doc_length_norm * query_weight
 
         # Sort documents by their relevance scores
         ranked_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
