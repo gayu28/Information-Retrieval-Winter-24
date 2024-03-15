@@ -60,12 +60,23 @@ class SearchEngine:
                 idx = list(self.inverted_index.keys()).index(token)
                 query_vector[idx] = self.query_weights[token]
 
-        # Calculate cosine similarity between query vector and document vectors
+        # Calculate relevance scores based on TF-IDF and positions
         for term in tokens:
             if term in self.inverted_index:
                 query_weight = self.query_weights[term]
-                for url, tfidf in self.inverted_index[term]:
-                    scores[url] += query_weight * tfidf
+                for entry in self.inverted_index[term]:
+                    url, tfidf = entry[:2]  # Unpack url and tfidf, ignoring positions if not available
+                    tfidf_score = query_weight * tfidf
+                    # Modify scoring to incorporate positions if available
+                    positions = entry[2] if len(entry) > 2 else None
+                    
+                    if positions:
+                    # Calculate proximity score based on positions
+                        proximity_score = self.calculate_proximity_score(positions, len(tokens))
+                        # Combine TF-IDF score and proximity score
+                        scores[url] += tfidf_score * proximity_score
+                    else:
+                        scores[url] += tfidf_score
 
         # Combine relevance scores with PageRank scores
         for url, score in scores.items():
@@ -75,8 +86,20 @@ class SearchEngine:
         ranked_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         return ranked_docs
 
+    def calculate_proximity_score(self, positions, query_length):
+        # Example function to calculate proximity score based on positions
+        # Adjust this function based on your specific proximity scoring criteria
+        if len(positions) > 0:
+            # Example: Penalize documents where terms are far apart
+            max_distance = max(positions) - min(positions) + 1
+            average_distance = max_distance / query_length
+            return 1 / (1 + average_distance)
+        else:
+            return 1
+
+
 if __name__ == "__main__":
-    index_folder = "/home/ics-home/IR-Winter 24/Indexer/partial_indexes"  # Path to the folder containing the partial index JSON files
+    index_folder = "/home/ics-home/IR-Winter 24/Indexer/partial_indexes_update2"  # Path to the folder containing the partial index JSON files
     search_engine = SearchEngine(index_folder)
 
     while True:
